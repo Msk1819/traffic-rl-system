@@ -2,9 +2,16 @@ from openai import OpenAI
 import os
 import requests
 
-API_BASE_URL = os.getenv("API_BASE_URL", "https://msk1819-traffic-env.hf.space")
-MODEL_NAME = os.getenv("MODEL_NAME", "default")
-API_KEY = os.getenv("HF_TOKEN", "")
+API_BASE_URL = os.environ["API_BASE_URL"]
+API_KEY = os.environ["API_KEY"]
+MODEL_NAME = os.environ["MODEL_NAME"]
+
+ENV_URL = "https://msk1819-traffic-env.hf.space"
+
+client = OpenAI(
+    base_url=API_BASE_URL,
+    api_key=API_KEY
+)
 
 def log_start(**kwargs):
     print("[START]", kwargs)
@@ -15,36 +22,49 @@ def log_step(**kwargs):
 def log_end(**kwargs):
     print("[END]", kwargs)
 
+def get_action(observation):
+    prompt = f"""
+You are a traffic control AI.
+
+Observation:
+{observation}
+
+Choose best action:
+Options = ["A_NS", "A_EW", "B_NS", "B_EW"]
+
+Return only action.
+"""
+
+    response = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[{"role": "user", "content": prompt}],
+        temperature=0
+    )
+
+    return response.choices[0].message.content.strip()
+
 def main():
-    client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
-
-    rewards = []
-    steps_taken = 0
-
     log_start(task="traffic", env="traffic-env", model=MODEL_NAME)
 
-    # 🔥 RESET ENV
-    response = requests.post(f"{API_BASE_URL}/reset")
-    data = response.json()
+    rewards = []
 
-    for step in range(1, 10):
-        if data.get("done"):
-            break
+    # RESET ENV
+    res = requests.post(f"{ENV_URL}/reset").json()
+    observation = res["observation"]
 
-        # simple action (can be improved)
-        action = "A_E"
+    for step in range(10):
+        action = get_action(observation)
 
-        # 🔥 STEP ENV
-        result = requests.post(
-            f"{API_BASE_URL}/step",
+        res = requests.post(
+            f"{ENV_URL}/step",
             json={"action": action}
         ).json()
 
-        reward = result.get("reward", 0.0)
-        done = result.get("done", False)
+        observation = res["observation"]
+        reward = res["reward"]
+        done = res["done"]
 
         rewards.append(reward)
-        steps_taken = step
 
         log_step(
             step=step,
@@ -54,16 +74,14 @@ def main():
             error=None
         )
 
-        data = result
-
         if done:
             break
 
-    score = sum(rewards) / len(rewards) if rewards else 0.0
+    score = sum(rewards) / len(rewards)
 
     log_end(
         success=True,
-        steps=steps_taken,
+        steps=len(rewards),
         score=score,
         rewards=rewards
     )
