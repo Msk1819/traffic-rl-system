@@ -1,3 +1,4 @@
 fastapi
 uvicorn
 numpy
+openenv>=0.2.0
