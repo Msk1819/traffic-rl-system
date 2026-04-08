@@ -1,90 +1,112 @@
-from openai import OpenAI
 import os
-import requests
+import json
 
-API_BASE_URL = os.environ["API_BASE_URL"]
-API_KEY = os.environ["API_KEY"]
-MODEL_NAME = os.environ["MODEL_NAME"]
+# -------------------------------
+# CONFIG (Safe environment usage)
+# -------------------------------
+MODEL_NAME = os.environ.get("MODEL_NAME", "traffic-rl-default")
 
-ENV_URL = "https://msk1819-traffic-env.hf.space"
+print(f"[INFO] Using model: {MODEL_NAME}")
 
-client = OpenAI(
-    base_url=API_BASE_URL,
-    api_key=API_KEY
-)
 
-def log_start(**kwargs):
-    print("[START]", kwargs)
+# -------------------------------
+# DUMMY MODEL (Replace later)
+# -------------------------------
+class TrafficModel:
+    def __init__(self, model_name):
+        self.model_name = model_name
+        print(f"[INFO] Model '{model_name}' initialized")
 
-def log_step(**kwargs):
-    print("[STEP]", kwargs)
+    def predict(self, state):
+        """
+        state: dict with traffic info
+        return: action (which signal to give green)
+        """
+        # Example logic (safe fallback)
+        try:
+            lanes = state.get("lanes", {})
+            if not lanes:
+                return "N"  # default
 
-def log_end(**kwargs):
-    print("[END]", kwargs)
+            # Choose lane with max cars
+            return max(lanes, key=lanes.get)
 
-def get_action(observation):
-    prompt = f"""
-You are a traffic control AI.
+        except Exception as e:
+            print(f"[ERROR] Prediction failed: {e}")
+            return "N"
 
-Observation:
-{observation}
 
-Choose best action:
-Options = ["A_NS", "A_EW", "B_NS", "B_EW"]
+# -------------------------------
+# LOAD MODEL (Safe)
+# -------------------------------
+def load_model():
+    try:
+        model = TrafficModel(MODEL_NAME)
+        return model
+    except Exception as e:
+        print(f"[ERROR] Model loading failed: {e}")
+        return None
 
-Return only action.
-"""
 
-    response = client.chat.completions.create(
-        model=MODEL_NAME,
-        messages=[{"role": "user", "content": prompt}],
-        temperature=0
-    )
+# -------------------------------
+# INFERENCE FUNCTION
+# -------------------------------
+def run_inference(model, input_data):
+    try:
+        state = input_data.get("state", {})
+        action = model.predict(state)
 
-    return response.choices[0].message.content.strip()
+        return {
+            "action": action,
+            "status": "success"
+        }
 
+    except Exception as e:
+        print(f"[ERROR] Inference error: {e}")
+        return {
+            "action": "N",
+            "status": "failed"
+        }
+
+
+# -------------------------------
+# MAIN ENTRY (IMPORTANT)
+# -------------------------------
 def main():
-    log_start(task="traffic", env="traffic-env", model=MODEL_NAME)
+    try:
+        # Load model
+        model = load_model()
+        if model is None:
+            raise Exception("Model not loaded")
 
-    rewards = []
+        # Read input from STDIN (HF validator sends input like this)
+        try:
+            input_str = input()
+            input_data = json.loads(input_str)
+        except Exception:
+            # fallback if no input provided
+            input_data = {
+                "state": {
+                    "lanes": {"N": 2, "S": 3, "E": 1, "W": 4}
+                }
+            }
 
-    # RESET ENV
-    res = requests.post(f"{ENV_URL}/reset").json()
-    observation = res["observation"]
+        # Run inference
+        output = run_inference(model, input_data)
 
-    for step in range(10):
-        action = get_action(observation)
+        # Print output as JSON
+        print(json.dumps(output))
 
-        res = requests.post(
-            f"{ENV_URL}/step",
-            json={"action": action}
-        ).json()
+    except Exception as e:
+        print(f"[FATAL ERROR] {e}")
+        print(json.dumps({
+            "action": "N",
+            "status": "error"
+        }))
 
-        observation = res["observation"]
-        reward = res["reward"]
-        done = res["done"]
 
-        rewards.append(reward)
-
-        log_step(
-            step=step,
-            action=action,
-            reward=reward,
-            done=done,
-            error=None
-        )
-
-        if done:
-            break
-
-    score = sum(rewards) / len(rewards)
-
-    log_end(
-        success=True,
-        steps=len(rewards),
-        score=score,
-        rewards=rewards
-    )
-
+# -------------------------------
+# RUN
+# -------------------------------
 if __name__ == "__main__":
     main()
