@@ -1,14 +1,10 @@
 [project]
 name = "traffic-env"
-version = "0.1.0"
-description = "Traffic RL environment"
-
+version = "0.2.0"
 dependencies = [
     "fastapi",
     "uvicorn",
-    "numpy",
-    "openai",
-    "openenv>=0.2.0"
+    "openenv-core>=0.2.0"
 ]
 
 [project.scripts]
