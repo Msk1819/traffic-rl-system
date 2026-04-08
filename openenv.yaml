@@ -1,0 +1,7 @@
+name: traffic-env
+description: Intelligent traffic RL environment
+
+tasks:
+  - name: basic
+  - name: heavy
+  - name: emergency
