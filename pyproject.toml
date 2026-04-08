@@ -1,0 +1,12 @@
+[project]
+name = "traffic-env"
+version = "0.1.0"
+description = "Multi-junction traffic RL environment"
+authors = [{ name = "Shyam Kumar" }]
+dependencies = [
+    "fastapi",
+    "uvicorn",
+    "numpy",
+    "requests",
+    "openai"
+]
