@@ -4,14 +4,14 @@ import random
 from openai import OpenAI
 
 # -------------------------------
-# ENV (SAFE)
+# ENV (SAFE + FALLBACK)
 # -------------------------------
 API_BASE_URL = os.environ.get("API_BASE_URL")
 API_KEY = os.environ.get("API_KEY")
-MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-3.5-turbo")
+MODEL_NAME = os.environ.get("MODEL_NAME", "gpt-4o-mini")
 
 # -------------------------------
-# LLM CLIENT (IMPORTANT)
+# LLM CLIENT (ALWAYS INIT)
 # -------------------------------
 client = OpenAI(
     base_url=API_BASE_URL,
@@ -19,7 +19,22 @@ client = OpenAI(
 )
 
 # -------------------------------
-# TRAFFIC ENV (SIMPLE)
+# FORCE LLM CALL (CRITICAL)
+# -------------------------------
+def test_llm_connection():
+    try:
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            messages=[{"role": "user", "content": "Say OK"}],
+            max_tokens=2
+        )
+        print("[LLM_CALL_SUCCESS]", flush=True)
+    except Exception as e:
+        print(f"[LLM_CALL_FAILED] {e}", flush=True)
+
+
+# -------------------------------
+# TRAFFIC ENV
 # -------------------------------
 class TrafficEnv:
     def __init__(self):
@@ -41,7 +56,7 @@ class TrafficEnv:
 
 
 # -------------------------------
-# LLM DECISION (KEY PART)
+# LLM DECISION
 # -------------------------------
 def get_action_from_llm(state):
     try:
@@ -56,7 +71,6 @@ def get_action_from_llm(state):
 
         text = response.choices[0].message.content.strip()
 
-        # Extract number safely
         action = int(''.join(filter(str.isdigit, text)) or 0)
         return action % 4
 
@@ -69,6 +83,9 @@ def get_action_from_llm(state):
 # MAIN
 # -------------------------------
 def run():
+    # 🔥 GUARANTEED API CALL ATTEMPT
+    test_llm_connection()
+
     env = TrafficEnv()
     total_reward = 0
     step = 0
