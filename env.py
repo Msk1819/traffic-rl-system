@@ -1,74 +1,123 @@
 import random
+import copy
 
 class TrafficEnv:
     def __init__(self):
-        self.state = {}
+        self.reset()
 
     def reset(self):
-        self.state = {
-            "junction_A": {
-                "N": random.randint(0, 10),
-                "S": random.randint(0, 10),
-                "E": random.randint(0, 10),
-                "W": random.randint(0, 10)
-            },
-            "junction_B": {
-                "N": random.randint(0, 10),
-                "S": random.randint(0, 10),
-                "E": random.randint(0, 10),
-                "W": random.randint(0, 10)
-            },
-            "ambulance": random.choice(["A", "B", None])  # ambulance location
+        self.junction_A = {d: random.randint(0, 10) for d in ["N", "S", "E", "W"]}
+        self.junction_B = {d: random.randint(0, 10) for d in ["N", "S", "E", "W"]}
+        self.ambulance = random.choice(["A", "B"])
+        self.step_count = 0
+
+        # track previous congestion (for adaptive reward)
+        self.prev_total_wait = self._total_wait()
+
+        return self._get_obs()
+
+    def _get_obs(self):
+        return {
+            "junction_A": self.junction_A,
+            "junction_B": self.junction_B,
+            "ambulance": self.ambulance,
+            "step": self.step_count
         }
 
-        return self.state
+    def _total_wait(self):
+        return sum(self.junction_A.values()) + sum(self.junction_B.values())
+
+    # 🚀 Traffic prediction (simple but effective)
+    def _predict_next(self, junction):
+        predicted = {}
+        for d in junction:
+            predicted[d] = junction[d] + 1  # expected incoming avg
+        return predicted
+
+    # 🚀 Apply action
+    def _update_junction(self, junction, direction):
+        cleared = 0
+
+        if direction == "NS":
+            cleared = min(junction["N"] + junction["S"], 6)
+            junction["N"] = max(0, junction["N"] - 3)
+            junction["S"] = max(0, junction["S"] - 3)
+        else:
+            cleared = min(junction["E"] + junction["W"], 6)
+            junction["E"] = max(0, junction["E"] - 3)
+            junction["W"] = max(0, junction["W"] - 3)
+
+        # controlled traffic inflow
+        for d in junction:
+            junction[d] += random.randint(0, 2)
+
+        return cleared
 
     def step(self, action):
-        """
-        action format: "A_E", "B_N", etc.
-        (junction + direction)
-        """
+        self.step_count += 1
 
-        reward = 0.0
+        junction = action[0]   # A or B
+        direction = action.split("_")[1]
 
-        try:
-            junction, direction = action.split("_")
-        except:
-            junction, direction = "A", "E"  # fallback
+        cleared_A = 0
+        cleared_B = 0
 
-        # Get selected junction
-        junction_key = "junction_A" if junction == "A" else "junction_B"
+        # 🚀 Apply action
+        if junction == "A":
+            cleared_A = self._update_junction(self.junction_A, direction)
+        else:
+            cleared_B = self._update_junction(self.junction_B, direction)
 
-        # Get traffic at that direction
-        traffic = self.state[junction_key].get(direction, 0)
+        # 🧠 Multi-agent coordination insight
+        load_A = sum(self.junction_A.values())
+        load_B = sum(self.junction_B.values())
 
-        # --------------------------
-        # REWARD LOGIC
-        # --------------------------
+        # 🚀 Prediction
+        pred_A = sum(self._predict_next(self.junction_A).values())
+        pred_B = sum(self._predict_next(self.junction_B).values())
 
-        # Reward for clearing traffic
-        reward += traffic * 0.1
+        # 🔥 ADAPTIVE REWARD
+        reward = 0
 
-        # Penalize congestion overall
-        total_traffic = sum(self.state["junction_A"].values()) + sum(self.state["junction_B"].values())
-        reward -= total_traffic * 0.02
+        # 1. traffic clearing
+        reward += cleared_A * 0.7
+        reward += cleared_B * 0.7
 
-        # 🚑 Emergency priority
-        if self.state["ambulance"] == junction:
-            reward += 2.0  # strong bonus
+        # 2. congestion penalty
+        total_wait = self._total_wait()
+        reward -= total_wait * 0.04
 
-        # --------------------------
-        # STATE UPDATE (simulate flow)
-        # --------------------------
+        # 3. improvement bonus (adaptive)
+        if total_wait < self.prev_total_wait:
+            reward += 2  # improvement reward
+        else:
+            reward -= 1
 
-        for j in ["junction_A", "junction_B"]:
-            for d in ["N", "S", "E", "W"]:
-                # random fluctuation
-                self.state[j][d] = max(0, self.state[j][d] + random.randint(-2, 3))
+        # 4. ambulance priority
+        if self.ambulance == junction:
+            reward += 4
+        else:
+            reward -= 2
 
-        # Random ambulance movement
-        self.state["ambulance"] = random.choice(["A", "B", None])
+        # 5. strategic decision (multi-agent coordination)
+        if load_A > load_B and junction == "A":
+            reward += 1.5
+        if load_B > load_A and junction == "B":
+            reward += 1.5
 
-        done = False
+        # 6. prediction-based reward
+        if pred_A > pred_B and junction == "A":
+            reward += 1
+        if pred_B > pred_A and junction == "B":
+            reward += 1
 
-        return self.state, reward, done
+        # update memory
+        self.prev_total_wait = total_wait
+
+        # ambulance moves
+        if self.step_count % 5 == 0:
+            self.ambulance = random.choice(["A", "B"])
+
+        done = self.step_count >= 60
+
+        return self._get_obs(), round(reward, 2), done
