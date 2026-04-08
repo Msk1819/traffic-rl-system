@@ -1,146 +1,101 @@
 import os
-import json
 import time
+import random
 
 # -------------------------------
-# CONFIG (Safe environment usage)
+# Safe environment handling
 # -------------------------------
-MODEL_NAME = os.environ.get("MODEL_NAME", "traffic-rl-advanced")
-
-print(f"[INFO] Using model: {MODEL_NAME}")
-
+MODEL_NAME = os.environ.get("MODEL_NAME", "traffic-rl-default")
 
 # -------------------------------
-# MODEL
+# Dummy Traffic Environment
+# (Replace with your real env later)
 # -------------------------------
-class TrafficModel:
-    def __init__(self, model_name):
-        self.model_name = model_name
+class TrafficEnv:
+    def __init__(self):
+        self.lanes = [0, 0, 0, 0]  # N, S, E, W
+        self.step_count = 0
 
-        # Track waiting time (for fairness)
-        self.wait_time = {"N": 0, "S": 0, "E": 0, "W": 0}
+    def reset(self):
+        self.lanes = [random.randint(0, 5) for _ in range(4)]
+        self.step_count = 0
+        return self.lanes
 
-        print(f"[INFO] Model '{model_name}' initialized")
-
-    def update_wait_times(self, chosen_lane, lanes):
+    def step(self, action):
         """
-        Increase wait time for non-selected lanes
-        Reset chosen lane wait
+        action: 0=N, 1=S, 2=E, 3=W
         """
-        for lane in lanes:
-            if lane == chosen_lane:
-                self.wait_time[lane] = 0
-            else:
-                self.wait_time[lane] += 1
+        self.step_count += 1
 
-    def predict(self, state):
-        try:
-            lanes = state.get("lanes", {})
-            emergency = state.get("emergency", None)
+        # Cars pass in selected lane
+        passed = min(self.lanes[action], random.randint(1, 3))
+        self.lanes[action] -= passed
 
-            if not lanes:
-                return "N"
+        # New cars arrive randomly
+        self.lanes = [lane + random.randint(0, 2) for lane in self.lanes]
 
-            # 🚑 1. Emergency override (highest priority)
-            if emergency and emergency in lanes:
-                print(f"[INFO] Emergency detected at {emergency}")
-                self.update_wait_times(emergency, lanes)
-                return emergency
+        # Reward = negative congestion
+        reward = -sum(self.lanes)
 
-            # 🧠 2. RL-like scoring
-            scores = {}
-
-            for lane, cars in lanes.items():
-                traffic_score = cars * 2              # more cars = more priority
-                wait_score = self.wait_time[lane] * 3  # fairness boost
-                total_score = traffic_score + wait_score
-
-                scores[lane] = total_score
-
-            # 🎯 3. Choose best lane
-            best_lane = max(scores, key=scores.get)
-
-            # 🔄 4. Update wait times
-            self.update_wait_times(best_lane, lanes)
-
-            print(f"[DEBUG] Scores: {scores}")
-            print(f"[DEBUG] Wait Times: {self.wait_time}")
-
-            return best_lane
-
-        except Exception as e:
-            print(f"[ERROR] Prediction failed: {e}")
-            return "N"
+        done = self.step_count >= 10
+        return self.lanes, reward, done
 
 
 # -------------------------------
-# LOAD MODEL
+# Dummy Agent (Replace with your RL model)
 # -------------------------------
-def load_model():
-    try:
-        return TrafficModel(MODEL_NAME)
-    except Exception as e:
-        print(f"[ERROR] Model loading failed: {e}")
-        return None
+class Agent:
+    def select_action(self, state):
+        return random.randint(0, 3)
 
 
 # -------------------------------
-# INFERENCE
+# Main Simulation
 # -------------------------------
-def run_inference(model, input_data):
-    try:
-        state = input_data.get("state", {})
-        action = model.predict(state)
+def run_simulation():
+    env = TrafficEnv()
+    agent = Agent()
 
-        return {
-            "action": action,
-            "status": "success"
-        }
+    state = env.reset()
+    total_reward = 0
+    step = 0
 
-    except Exception as e:
-        print(f"[ERROR] Inference error: {e}")
-        return {
-            "action": "N",
-            "status": "failed"
-        }
+    print(f"[START] task=traffic_control model={MODEL_NAME}", flush=True)
+
+    while True:
+        step += 1
+
+        action = agent.select_action(state)
+        next_state, reward, done = env.step(action)
+
+        total_reward += reward
+
+        print(f"[STEP] step={step} reward={reward}", flush=True)
+
+        state = next_state
+
+        if done:
+            break
+
+        time.sleep(0.05)  # small delay (safe)
+
+    score = total_reward / step if step > 0 else 0
+
+    print(
+        f"[END] task=traffic_control score={score:.4f} steps={step}",
+        flush=True
+    )
 
 
 # -------------------------------
-# MAIN
+# Entry Point (Crash-safe)
 # -------------------------------
 def main():
     try:
-        model = load_model()
-        if model is None:
-            raise Exception("Model not loaded")
-
-        # Read input (HF validator style)
-        try:
-            input_str = input()
-            input_data = json.loads(input_str)
-        except Exception:
-            # fallback test input
-            input_data = {
-                "state": {
-                    "lanes": {"N": 2, "S": 3, "E": 1, "W": 4},
-                    "emergency": None
-                }
-            }
-
-        output = run_inference(model, input_data)
-
-        print(json.dumps(output))
-
+        run_simulation()
     except Exception as e:
-        print(f"[FATAL ERROR] {e}")
-        print(json.dumps({
-            "action": "N",
-            "status": "error"
-        }))
+        print(f"[ERROR] {str(e)}", flush=True)
 
 
-# -------------------------------
-# RUN
-# -------------------------------
 if __name__ == "__main__":
     main()
